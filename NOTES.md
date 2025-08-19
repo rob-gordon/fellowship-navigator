@@ -106,3 +106,7 @@ when formalizing control flow visibility:
 The golden rule: All branching logic should be
 visible at the level where the decision matters, not
 buried in called functions.
+
+---
+
+The tricky part is amassing messages in the way we want. It's crazy because sometime we want to finesse the messages for the particular case. For instance, we might just want to drop out system messages to make it more natural. We also might want not the full memory.
