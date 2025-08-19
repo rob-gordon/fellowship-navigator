@@ -1,9 +1,9 @@
 import { intro, text, stream, multiselect, outro, log } from "@clack/prompts";
 import { openrouter } from "@openrouter/ai-sdk-provider";
-import { generateObject, streamText } from "ai";
+import { generateObject, generateText, streamText } from "ai";
 import { z } from "zod";
 
-let dim_index = -1;
+let dim_index = 0;
 const data = {
   COLOR: "",
   SIZE: "",
@@ -47,34 +47,44 @@ async function main() {
     // BRANCH: Handle user responses to options
     let option_selected = false;
     user_likes_dimension = true;
+    let previousOptions: string[] | undefined;
+    let previousExplanation: string | undefined;
+
     while (user_likes_dimension && !option_selected) {
       const options = await presentOptions(
         current_dimension,
         context,
         greeting,
         fishingResponse.question,
-        fishingResponse.response
+        fishingResponse.response,
+        previousOptions,
+        previousExplanation
       );
 
-      // option_selected is always true for now
-      data[current_dimension as keyof typeof data] = options.join(", ");
+      if (options.type === "change_options") {
+        // Store the previous options and explanation for the next iteration
+        previousOptions = options.previousOptions || [];
+        previousExplanation = options.explanation;
+        // Don't set option_selected to true, continue the loop to show new options
+        option_selected = false;
+        user_likes_dimension = true;
+      } else if (options.type === "change_dimension") {
+        option_selected = false;
+        user_likes_dimension = false;
+      } else if (options.type === "selected") {
+        data[current_dimension as keyof typeof data] =
+          options.selected_options.join(", ");
+        // Store the options that were shown for potential future use
+        previousOptions = options.shownOptions;
+        option_selected = true;
+        user_likes_dimension = true;
+      }
 
-      option_selected = true;
-
-      // const response = getUserResponse();
-
-      // // BRANCH: Handle different response types explicitly
-      // if (response === "selected") {
-      //   data[current_dimension as keyof typeof data] = "choice!";
-      //   option_selected = true;
-      //   user_likes_dimension = true;
-      // } else if (response === "new_options") {
-      //   option_selected = false;
-      //   user_likes_dimension = true;
-      // } else if (response === "different_dimension") {
-      //   option_selected = false;
-      //   user_likes_dimension = false;
-      // }
+      // If we're continuing the loop (change_options), we need to capture the new options shown
+      if (options.type === "change_options") {
+        // The next iteration will show new options, so we'll capture those in the next call
+        continue;
+      }
     }
   }
   await finalResult(context, greeting, data);
@@ -133,7 +143,6 @@ function selectAdjacentDimension(): number {
 }
 
 function selectOppositeDimension(): number {
-  console.log("[Selecting opposite dimension]");
   const next_index =
     (dim_index + Math.floor(dimensions.length / 2)) % dimensions.length;
   return next_index;
@@ -195,40 +204,55 @@ export async function presentOptions(
   context: string,
   greeting: string,
   question: string,
-  response: string
+  response: string,
+  previousOptions?: string[],
+  previousExplanation?: string
 ) {
   // Rebuild the current messages, using everything you need,
   // eventually (especially) if the user doesn't really want the same
   // choices as given previously
 
+  const messages = [
+    {
+      role: "system" as const,
+      content: `You are an assistant that helps users discover their favorite bird by finding out what they like about birds. The user has given you the following context: ${context}`,
+    },
+    {
+      role: "assistant" as const,
+      content: greeting,
+    },
+    {
+      role: "system" as const,
+      content: `Ask the user an open-ended question which invites their thoughts on the following dimension of birds: ${dimension}`,
+    },
+    {
+      role: "assistant" as const,
+      content: question,
+    },
+    {
+      role: "user" as const,
+      content: response,
+    },
+  ];
+
+  // If we have previous options and explanation, add them to provide context
+  if (previousOptions && previousExplanation) {
+    messages.push({
+      role: "system" as const,
+      content: `The user was previously shown these options: ${previousOptions.join(
+        ", "
+      )} but they didn't like them because: ${previousExplanation}. Please generate different options that address their concerns.`,
+    });
+  } else {
+    messages.push({
+      role: "system" as const,
+      content: `Generate 2-4 options for the dimension ${dimension}, that will help narrow down the user's favorite bird.`,
+    });
+  }
+
   const { object } = await generateObject({
     model: openrouter("openai/gpt-4o-mini"),
-    messages: [
-      {
-        role: "system",
-        content: `You are an assistant that helps users discover their favorite bird by finding out what they like about birds. The user has given you the following context: ${context}`,
-      },
-      {
-        role: "assistant",
-        content: greeting,
-      },
-      {
-        role: "system",
-        content: `Ask the user an open-ended question which invites their thoughts on the following dimension of birds: ${dimension}`,
-      },
-      {
-        role: "assistant",
-        content: question,
-      },
-      {
-        role: "user",
-        content: response,
-      },
-      {
-        role: "system",
-        content: `Generate 2-4 options for the dimension ${dimension}, that will help narrow down the user's favorite bird.`,
-      },
-    ],
+    messages,
     schema: z.object({
       options: z.array(z.string()),
     }),
@@ -237,17 +261,76 @@ export async function presentOptions(
   // use clack to present the options
   const selected_options = await multiselect({
     message: "Select the options that you like",
-    options: object.options.map((option) => ({
-      value: option,
-      label: option,
-    })),
+    options: [
+      ...object.options.map((option) => ({
+        value: option,
+        label: option,
+      })),
+      {
+        value: "other",
+        label: "Other (please explain)",
+      },
+    ],
   });
+
+  // if the user chooses other, give them a text input
+  if (Array.isArray(selected_options) && selected_options.includes("other")) {
+    const other_explanation = await text({
+      message: "Please explain why you chose other",
+    });
+
+    // use a cerebras model to expose whether user wants to "CHANGE_OPTIONS" or "CHANGE_DIMENSION"
+    const { text: output } = await generateText({
+      model: openrouter("openai/gpt-oss-120b"),
+      providerOptions: {
+        openrouter: {
+          only: "cerebras",
+        },
+      },
+      messages: [
+        {
+          role: "system",
+          content: `You are an assistant that helps users discover their favorite bird by finding out what they like about birds. The user has given you the following context: ${context}`,
+        },
+        {
+          role: "system",
+          content: `The user was provided the following options: ${object.options.join(
+            ", "
+          )} given the following dimension: ${dimension} – but instead of selecting one of them, they chose "other" and provided the following explanation: ${other_explanation.toString()}. Decide whether the user wants to change the options or change the dimension. Return the string "CHANGE_OPTIONS" or "CHANGE_DIMENSION" only.`,
+        },
+      ],
+    });
+
+    if (output.toLowerCase().includes("options")) {
+      return {
+        type: "change_options" as const,
+        explanation: other_explanation.toString(),
+        previousOptions: object.options,
+      };
+    } else if (output.toLowerCase().includes("change_dimension")) {
+      return {
+        type: "change_dimension" as const,
+        explanation: other_explanation.toString(),
+      };
+    } else {
+      console.error("Invalid output from cerebras model", output);
+      return {
+        type: "change_options" as const,
+        explanation: other_explanation.toString(),
+        previousOptions: object.options,
+      };
+    }
+  }
 
   if (!Array.isArray(selected_options)) {
     throw new Error("Selected options is not an array");
   }
 
-  return selected_options;
+  return {
+    type: "selected" as const,
+    selected_options: selected_options,
+    shownOptions: object.options,
+  };
 }
 
 async function finalResult(context: string, greeting: string, data: Data) {
