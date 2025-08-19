@@ -1,2 +1,4 @@
-- [ ] Replace the fake calls with real llm calls, tracking any tips you find about getting and storing context
+- [ ] make the change dimensions work
+- [ ] make the change options work
+- [x] Replace the fake calls with real llm calls, tracking any tips you find about getting and storing context
 - [ ] It's weird that it doesn't pick a dimension based on what the user says they're interested in

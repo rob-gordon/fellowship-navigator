@@ -110,3 +110,10 @@ buried in called functions.
 ---
 
 The tricky part is amassing messages in the way we want. It's crazy because sometime we want to finesse the messages for the particular case. For instance, we might just want to drop out system messages to make it more natural. We also might want not the full memory.
+
+---
+
+building these systems reliably is extremely difficult,
+especially because of the message passing
+
+I've been hesitant to keep messages in global state but it's almost like we have to if we want to make this at all easier for ourselves.
