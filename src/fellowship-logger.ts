@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import type { SearchResponse } from "./test-api-search.js";
+import type { SearchResponse } from "./api-search.js";
 
 interface FellowshipLogEntry {
   timestamp: string;

@@ -1,3 +1,5 @@
+#!/bin/env node
+
 import {
   intro,
   text,
@@ -14,15 +16,13 @@ import { z } from "zod";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
-import {
-  searchFellowshipContent,
-  type SearchRequest,
-  type SearchResponse,
-} from "./test-api-search.js";
+import { searchFellowshipContent, type SearchResponse } from "./api-search.js";
 import { logFellowshipEnrichment } from "./fellowship-logger.js";
 
 // Load environment variables
-dotenv.config();
+dotenv.config({
+  quiet: true,
+});
 
 // Set up OpenRouter with fallback API key
 const OPENROUTER_API_KEY =
