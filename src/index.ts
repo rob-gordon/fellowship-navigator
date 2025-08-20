@@ -8,17 +8,29 @@ import {
   log,
   spinner,
 } from "@clack/prompts";
-import { openrouter } from "@openrouter/ai-sdk-provider";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { generateObject, generateText, streamText } from "ai";
 import { z } from "zod";
 import fs from "fs";
 import path from "path";
+import dotenv from "dotenv";
 import {
   searchFellowshipContent,
   type SearchRequest,
   type SearchResponse,
 } from "./test-api-search.js";
 import { logFellowshipEnrichment } from "./fellowship-logger.js";
+
+// Load environment variables
+dotenv.config();
+
+// Set up OpenRouter with fallback API key
+const OPENROUTER_API_KEY =
+  process.env.OPENROUTER_API_KEY ||
+  "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";
+const openrouter = createOpenRouter({
+  apiKey: OPENROUTER_API_KEY,
+});
 
 let dim_index = 0;
 const data = {
@@ -430,7 +442,8 @@ async function generateSearchTerm(
     TARGET_USER: "who will use or benefit from the project",
     TECHNICAL_SHAPE:
       "form the project will take (app, organization, tool, etc.)",
-    SIGNAL_GATHERING: "methods to find users and test initial interest or demand",
+    SIGNAL_GATHERING:
+      "methods to find users and test initial interest or demand",
   };
 
   const { text: searchTerm } = await generateText({
@@ -711,8 +724,10 @@ This represents their background interest - a starting point for exploration, no
 
   // Generate concrete project ideas that match the user's criteria
   const finalSpinner = spinner();
-  finalSpinner.start("🚀 Generating your personalized fellowship project ideas...");
-  
+  finalSpinner.start(
+    "🚀 Generating your personalized fellowship project ideas..."
+  );
+
   const { object } = await generateObject({
     model: openrouter("openai/gpt-4o-mini"),
     temperature: 0.8, // Higher creativity for diverse project ideas
