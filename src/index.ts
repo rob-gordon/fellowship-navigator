@@ -16,6 +16,7 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 import { searchFellowshipContent, type SearchResponse } from "./api-search.js";
+import { getKey } from "./key.js";
 
 // Load environment variables
 dotenv.config({
@@ -23,9 +24,7 @@ dotenv.config({
 });
 
 // Set up OpenRouter with fallback API key
-const OPENROUTER_API_KEY =
-  process.env.OPENROUTER_API_KEY ||
-  "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";
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || getKey();
 const openrouter = createOpenRouter({
   apiKey: OPENROUTER_API_KEY,
 });
