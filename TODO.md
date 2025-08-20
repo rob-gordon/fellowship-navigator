@@ -1,5 +1,0 @@
-- [x] make the change dimensions work
-- [x] make the change options work
-- [ ] options should not contain final features, but rather a select number of options which deal primarily just with the dimension in question, but potentially borrowing info from already locked-down dimensions
-- [x] Replace the fake calls with real llm calls, tracking any tips you find about getting and storing context
-- [ ] It's weird that it doesn't pick a dimension based on what the user says they're interested in
