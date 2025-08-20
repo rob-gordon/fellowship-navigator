@@ -16,7 +16,6 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 import { searchFellowshipContent, type SearchResponse } from "./api-search.js";
-import { logFellowshipEnrichment } from "./fellowship-logger.js";
 
 // Load environment variables
 dotenv.config({
@@ -110,7 +109,6 @@ async function main() {
       );
 
       // Search fellowship content with timing (silent)
-      const searchStart = Date.now();
       fellowshipResults = await searchFellowshipContent({
         query: searchTerm,
         topK: 15,
@@ -123,7 +121,6 @@ async function main() {
         rerank: true,
         semanticWeight: 0.7,
       });
-      const searchDuration = Date.now() - searchStart;
 
       // Summarize results for context with timing (silent)
       fellowshipSummary = await summarizeFellowshipResults(
@@ -132,39 +129,11 @@ async function main() {
         context,
         fishingResponse.response
       );
-      const summaryDuration = Date.now() - searchStart;
-
-      // Log the enrichment data (silent)
-      await logFellowshipEnrichment(
-        current_dimension,
-        context,
-        fishingResponse.response,
-        searchTerm,
-        fellowshipResults,
-        fellowshipSummary,
-        {
-          search_duration_ms: searchDuration,
-          summary_duration_ms: summaryDuration,
-        }
-      );
-
-      s.stop();
     } catch (error) {
-      s.stop();
       // Silent error handling - just continue without fellowship context
       fellowshipSummary = "";
-
-      // Still log errors for debugging
-      if (searchTerm && fellowshipResults) {
-        await logFellowshipEnrichment(
-          current_dimension,
-          context,
-          fishingResponse.response,
-          searchTerm,
-          fellowshipResults,
-          fellowshipSummary
-        );
-      }
+    } finally {
+      s.stop();
     }
 
     // BRANCH: Handle user responses to options
@@ -457,20 +426,28 @@ async function generateSearchTerm(
     messages: [
       {
         role: "system",
-        content: `You are generating a search term to find fellowship discussions that will inspire options for the user's current thoughts.
+        content: `You are generating a search term to find fellowship discussions that will help create diverse options for the user's project dimension.
 
-CRITICAL: Base the search term primarily on what the user just said about ${dimension}, not their initial background context.
+CONTEXT: We're working on the ${dimension} dimension (${
+          dimensionMap[dimension as keyof typeof dimensionMap] || dimension
+        }). The search results will be used to generate an array of specific options within this dimension that align with the user's needs and previous choices.
 
-User's current response about ${dimension}: "${userResponse}"
+${
+  current_choices
+    ? `User's previous dimensional choices:\n${current_choices}\n\n`
+    : ""
+}User's current response about ${dimension}: "${userResponse}"
 
-Generate a focused search term (2-6 words) that captures the key themes from their current response. The search should find supplementary information and examples that relate to what they just expressed, to inspire diverse options for this dimension.
+Generate a focused search term (2-6 words) that will find fellowship discussions relevant to both:
+1. The user's specific interests/needs expressed in their response
+2. The type of options we need to generate for the ${dimension} dimension
+
+The search should discover conversations that contain examples, approaches, or perspectives that could inspire diverse options within this dimension, considering their existing project direction.
 
 Examples:
-- If they mentioned "fun decision making" → search "collaborative decision enjoyment"
-- If they mentioned "reducing bias" → search "bias recognition tools" 
-- If they mentioned "crisis communication" → search "emergency information coordination"
-
-Focus on the essence of what they just said, not their background interests.
+- If working on TARGET_USER and they mentioned "researchers" → search "academic collaboration tools"
+- If working on TECHNICAL_SHAPE and they mentioned "mobile" → search "mobile epistemics applications"
+- If working on EPISTEMIC_GOAL and they mentioned "bias reduction" → search "bias recognition methods"
 
 Return only the search term, nothing else.`,
       },
