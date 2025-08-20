@@ -4,7 +4,6 @@ import {
   intro,
   text,
   stream,
-  multiselect,
   select,
   outro,
   log,
@@ -46,10 +45,19 @@ const dimensions = Object.keys(data);
 type UserResponse = "selected" | "new_options" | "different_dimension";
 
 async function main() {
+  intro("🎯 Welcome to the AI+Epistemics Fellowship Project Picker!");
+
   const contextFile = process.argv[2];
   const context = contextFile
     ? await loadContextFromFile(contextFile)
-    : await getInitialContext();
+    : // : await getInitialContext();
+      "";
+
+  if (!contextFile) {
+    log.info(
+      "💡 Tip: You can provide initial context by passing a file (npx github:rob-gordon/fellowship-navigator context.txt)"
+    );
+  }
   const greeting = await greetUserAndAlign(context);
 
   // Main control flow - all branching logic is explicit here
@@ -217,8 +225,6 @@ async function loadContextFromFile(filePath: string): Promise<string> {
 }
 
 async function getInitialContext() {
-  intro("🎯 Welcome to the AI+Epistemics Fellowship Project Picker!");
-
   const context = await text({
     message:
       "What interests you most about using AI to improve human reasoning and tackle urgent global information problems?",
@@ -704,7 +710,7 @@ FELLOWSHIP CONTEXT: This fellowship supports designing AI tools that enhance hum
 
 The user initially mentioned: "${context}"
 
-This represents their background interest - a starting point for exploration, not a constraint. Generate diverse, creative project ideas that may go well beyond their initial context.`,
+This represents their background interest - a starting point for exploration, not a constraint.`,
     },
     {
       role: "assistant" as const,
@@ -722,15 +728,71 @@ This represents their background interest - a starting point for exploration, no
     }
   }
 
-  // Generate concrete project ideas that match the user's criteria
+  // STEP 1: Generate and stream recap of their answers
+  let recap = "";
+  const recapResult = streamText({
+    model: openrouter("openai/gpt-4o-mini"),
+    messages: [
+      ...messages,
+      {
+        role: "system",
+        content: `Provide a warm recap of the user's exploration through the project dimensions. Summarize their choices in a conversational way that shows you understand their vision. Don't just repeat their exact words - synthesize and reflect back what you're hearing about their project direction. Keep it encouraging and insightful (2-3 paragraphs).`,
+      },
+    ],
+    onFinish: (result) => {
+      recap = result.text;
+    },
+  });
+
+  await stream.message(recapResult.textStream);
+
+  // Add recap to message history
+  messages.push({
+    role: "assistant" as const,
+    content: recap,
+  });
+
+  // STEP 2: Generate and stream working hypothesis
+  let hypothesis = "";
+  const hypothesisResult = streamText({
+    model: openrouter("openai/gpt-4o-mini"),
+    messages: [
+      ...messages,
+      {
+        role: "system",
+        content: `Based on all their dimensional choices, formulate their "Working Hypothesis" in the format: "Building X for Y will have Z effect on A" where:
+- X = the technical approach/solution
+- Y = the target users
+- Z = the epistemic/reasoning improvement effect
+- A = the broader problem or context
+
+Present this as: "🎯 **Your Working Hypothesis:** [hypothesis statement]"
+
+Then add 1-2 sentences explaining what assumption they're operating under and why this hypothesis is worth testing.`,
+      },
+    ],
+    onFinish: (result) => {
+      hypothesis = result.text;
+    },
+  });
+
+  await stream.message(hypothesisResult.textStream);
+
+  // Add hypothesis to message history
+  messages.push({
+    role: "assistant" as const,
+    content: hypothesis,
+  });
+
+  // STEP 3: Generate concrete examples based on their working hypothesis
   const finalSpinner = spinner();
   finalSpinner.start(
-    "🚀 Generating your personalized fellowship project ideas..."
+    "🚀 Generating concrete examples from your working hypothesis..."
   );
 
   const { object } = await generateObject({
     model: openrouter("openai/gpt-4o-mini"),
-    temperature: 0.8, // Higher creativity for diverse project ideas
+    temperature: 0.8,
     messages: [
       ...messages,
       {
@@ -764,43 +826,27 @@ For each project, provide:
 
   finalSpinner.stop("✅ Project ideas ready!");
 
-  // Present the final project options to the user
-  const selected_projects = await multiselect({
-    message:
-      "🎯 Here are your concrete fellowship project ideas! Select the ones you'd like to explore further:",
-    options: object.projects.map((project) => ({
-      value: project.name,
-      label: `${project.name} - ${project.description}`,
-    })),
-  });
+  // Present the concrete examples (not as multiselect, just as information)
+  log.message(
+    "\n💡 **Here are some concrete project ideas based on your working hypothesis:**\n"
+  );
 
-  if (!Array.isArray(selected_projects)) {
-    throw new Error("Selected projects is not an array");
-  }
-
-  // Present detailed information about selected projects
-  log.message("\n🚀 Excellent choices! Here are your selected project ideas:");
-  selected_projects.forEach((projectName: string, index: number) => {
-    const projectData = object.projects.find((p) => p.name === projectName);
-    if (projectData) {
-      log.message(`\n${index + 1}. ${projectData.name}`);
-      log.message(`   ${projectData.description}`);
-      log.message(
-        `   🧠 Reasoning Enhancement: ${projectData.reasoning_enhancement}`
-      );
-      log.message(`   🎯 Strategic Gap: ${projectData.strategic_gap}`);
-    }
+  object.projects.forEach((project, index) => {
+    log.success(`${project.name}`);
+    log.message(`${project.description}\n`);
+    log.message(`🧠 Reasoning Enhancement: ${project.reasoning_enhancement}\n`);
+    log.message(`🎯 Strategic Gap: ${project.strategic_gap}\n`);
   });
 
   log.message(
-    "\n✨ Next steps: Take these concrete project ideas to your fellowship mentors and start prototyping!"
+    "✨ **Next steps:** Choose one of these ideas (or use them as inspiration) to start prototyping and testing your working hypothesis!"
   );
 
   log.message(
-    "\n💡 Pro tip: Start with the 'signal gathering' approach you identified to test real demand before building."
+    "\n💡 **Pro tip:** Remember that your working hypothesis is meant to be tested and refined - start with the simplest version that lets you learn whether you're on the right track."
   );
 
-  outro("Ready to tackle some world-on-fire problems! 🌍🔥");
+  outro("Ready to turn your hypothesis into reality! 🌍🔬");
 
   process.exit(0);
 }

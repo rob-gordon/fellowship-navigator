@@ -31,3 +31,5 @@ yarn-error.log*
 
 # Fellowship enrichment logs
 fellowship-logs/
+
+TODO.md

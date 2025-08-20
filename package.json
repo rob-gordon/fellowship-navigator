@@ -1,15 +1,14 @@
 {
-  "name": "flf-project-picker",
+  "name": "fellowship-navigator",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "bun run src/index.ts",
-    "build": "tsc",
     "start": "bun run dist/index.js",
-    "build:bundle": "tsup src/index.ts --target node18 --outDir dist --minify"
+    "build": "tsup src/index.ts --target node18 --outDir dist --minify"
   },
   "bin": {
-    "flf-project-picker": "dist/index.cjs"
+    "fellowship-navigator": "dist/index.cjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.16",
