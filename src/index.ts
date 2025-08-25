@@ -5,6 +5,7 @@ import {
   text,
   stream,
   select,
+  multiselect,
   outro,
   log,
   spinner,
@@ -164,8 +165,11 @@ async function main() {
         option_selected = false;
         user_likes_dimension = false;
       } else if (options.type === "selected") {
-        data[current_dimension as keyof typeof data] =
-          options.selected_options.join(", ");
+        const selections = options.selected_options.join(", ");
+        const dataValue = options.comment 
+          ? `${selections} (Note: ${options.comment})`
+          : selections;
+        data[current_dimension as keyof typeof data] = dataValue;
         // Store the options that were shown for potential future use
         previousOptions = options.shownOptions;
         option_selected = true;
@@ -201,38 +205,10 @@ async function getInitialContext() {
 }
 
 async function greetUserAndAlign(context: string) {
-  let greeting = "";
-
-  const result = streamText({
-    model: openrouter("openai/gpt-4o-mini"),
-    messages: [
-      {
-        role: "system",
-        content: `You are an assistant helping participants in the AI+Epistemics Fellowship discover concrete project ideas.
-
-FELLOWSHIP CONTEXT: This fellowship supports designing AI tools that enhance human reasoning and decision-making, both individually and collectively. Projects may aim to:
-- Raise the epistemic ceiling (deepen insight for experts) or floor (help broader populations find clarity)
-- Support mediation, negotiation, and collective action
-- Fill the strategic gap in beneficial AI tools that empower human reasoning
-- Address urgent global information and communication challenges
-
-You help participants through roadmapping, prototyping, and evaluation phases leading to a 12-week demo day.`,
-      },
-      {
-        role: "system",
-        content: `Write a warm, brief greeting (about one paragraph) that acknowledges their interests and context. Simply welcome them to the process of exploring fellowship project ideas - don't suggest any specific project ideas yet or go into detail about what they'll discover. Keep it conversational and encouraging. Do not ask them any follow up questions.
-
-        User context: ${context}`,
-      },
-    ],
-    onFinish: (result) => {
-      greeting = result.text;
-    },
-  });
-
-  // Stream the text using clack
-  await stream.message(result.textStream);
-  return greeting;
+  // Skip the verbose greeting - just return a brief acknowledgment for internal use
+  return context 
+    ? `Got it - you're interested in ${context}. Let's explore some project dimensions.`
+    : "Let's explore some project dimensions for your fellowship.";
 }
 
 function selectAdjacentDimension(): number {
@@ -370,11 +346,11 @@ This represents their background interest - a starting point for exploration, no
         role: "system",
         content: `${
           current_choices ? `\n\n${current_choices}\n\n` : ""
-        }Ask the user an open-ended question that invites their thoughts on the following project dimension: ${
+        }Ask a concise, direct question (1-2 sentences max) about: ${
           dimensionMap[dimension as keyof typeof dimensionMap] || dimension
         }. 
 
-Make the question specific to fellowship project planning and help them think concretely about this aspect of their potential project.`,
+Be specific and focused - avoid lengthy explanations or multiple sub-questions. Don't assume they have a project yet - you're exploring this dimension to help them discover possibilities.`,
       },
     ],
     onFinish: (result) => {
@@ -625,8 +601,8 @@ CRITICAL: Prioritize creative, original thinking over this background context. G
   });
 
   // use clack to present the options
-  const selected_option = await select({
-    message: "Select the option that resonates most with you:",
+  const selected_options = await multiselect({
+    message: "Select all options that resonate with you (you can explore multiple directions):",
     options: [
       ...object.options.map((option) => ({
         value: option,
@@ -644,7 +620,10 @@ CRITICAL: Prioritize creative, original thinking over this background context. G
   });
 
   // Handle the explicit dimension skip
-  if (selected_option === "skip_dimension") {
+  if (
+    Array.isArray(selected_options) &&
+    selected_options.includes("skip_dimension")
+  ) {
     return {
       type: "change_dimension" as const,
       explanation: "User chose to skip this dimension",
@@ -652,7 +631,10 @@ CRITICAL: Prioritize creative, original thinking over this background context. G
   }
 
   // Handle the request for different options
-  if (selected_option === "different_options") {
+  if (
+    Array.isArray(selected_options) &&
+    selected_options.includes("different_options")
+  ) {
     const explanation = await text({
       message: "What kind of options would you prefer to see instead?",
     });
@@ -664,9 +646,28 @@ CRITICAL: Prioritize creative, original thinking over this background context. G
     };
   }
 
+  if (!Array.isArray(selected_options)) {
+    throw new Error("Selected options is not an array");
+  }
+
+  // Add optional comment capability for nuance
+  let comment = "";
+  if (selected_options.length > 0) {
+    const addComment = await text({
+      message: "💭 Add any nuances or clarifications about your selections (optional):",
+      placeholder: "e.g., 'Option 1 is definitely key, but not where I see main impact...'",
+      defaultValue: "",
+    });
+    
+    if (addComment && addComment.toString().trim()) {
+      comment = addComment.toString().trim();
+    }
+  }
+
   return {
     type: "selected" as const,
-    selected_options: [selected_option], // Convert single selection to array for compatibility
+    selected_options: selected_options,
+    comment: comment,
     shownOptions: object.options,
   };
 }
@@ -803,26 +804,57 @@ For each project, provide:
   finalSpinner.stop("✅ Project ideas ready!");
 
   // Present the concrete examples (not as multiselect, just as information)
-  log.message(
-    "\n💡 **Here are some concrete project ideas based on your working hypothesis:**\n"
-  );
+  // Present projects concisely first
+  const projectChoices = object.projects.map((project, index) => ({
+    value: project.name,
+    label: `${project.name}`,
+    hint: project.description.split('.')[0] + '.' // First sentence only
+  }));
 
-  object.projects.forEach((project, index) => {
-    log.success(`${project.name}`);
-    log.message(`${project.description}\n`);
-    log.message(`🧠 Reasoning Enhancement: ${project.reasoning_enhancement}\n`);
-    log.message(`🎯 Strategic Gap: ${project.strategic_gap}\n`);
+  const selectedProjects = await multiselect({
+    message: "🎯 Here are your personalized fellowship project ideas! Select any you'd like to explore further:",
+    options: [
+      ...projectChoices,
+      {
+        value: "show_all_details",
+        label: "📋 Show full details for all projects",
+        hint: "See reasoning enhancement & strategic gap for each"
+      }
+    ],
   });
 
-  log.message(
-    "✨ **Next steps:** Choose one of these ideas (or use them as inspiration) to start prototyping and testing your working hypothesis!"
-  );
+  if (!Array.isArray(selectedProjects)) {
+    throw new Error("Selected projects is not an array");
+  }
+
+  // Show details for selected projects or all if requested
+  if (selectedProjects.includes("show_all_details") || selectedProjects.length === 0) {
+    log.message("\n📋 **Full project details:**\n");
+    object.projects.forEach((project) => {
+      log.success(`${project.name}`);
+      log.message(`${project.description}\n`);
+      log.message(`🧠 Reasoning Enhancement: ${project.reasoning_enhancement}\n`);
+      log.message(`🎯 Strategic Gap: ${project.strategic_gap}\n`);
+    });
+  } else {
+    // Show details only for selected projects
+    log.message("\n🎯 **Your selected project details:**\n");
+    selectedProjects.forEach((projectName: string) => {
+      const project = object.projects.find(p => p.name === projectName);
+      if (project) {
+        log.success(`${project.name}`);
+        log.message(`${project.description}\n`);
+        log.message(`🧠 Reasoning Enhancement: ${project.reasoning_enhancement}\n`);
+        log.message(`🎯 Strategic Gap: ${project.strategic_gap}\n`);
+      }
+    });
+  }
 
   log.message(
-    "\n💡 **Pro tip:** Remember that your working hypothesis is meant to be tested and refined - start with the simplest version that lets you learn whether you're on the right track."
+    "✨ **Next steps:** Start prototyping and testing your ideas with potential users!"
   );
 
-  outro("Ready to turn your hypothesis into reality! 🌍🔬");
+  outro("Ready to build something impactful! 🌍🔬");
 
   process.exit(0);
 }
